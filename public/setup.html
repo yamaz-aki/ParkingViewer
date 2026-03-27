@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>セットアップ | 駐車場ライブ</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans JP', sans-serif;
+      background: #0f1117;
+      color: #e4e4e7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .setup-card {
+      background: #1a1b23;
+      border: 1px solid #2a2b35;
+      border-radius: 16px;
+      padding: 48px;
+      max-width: 480px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .sub {
+      color: #71717a;
+      font-size: 14px;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .steps {
+      text-align: left;
+      margin-bottom: 32px;
+    }
+
+    .step {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid #2a2b35;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .step:last-child { border-bottom: none; }
+
+    .step-num {
+      background: #3b82f6;
+      color: #fff;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    code {
+      background: #2a2b35;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: 'SF Mono', monospace;
+    }
+
+    .auth-btn {
+      display: inline-block;
+      background: #3b82f6;
+      color: #fff;
+      text-decoration: none;
+      padding: 14px 40px;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 700;
+      transition: background 0.2s;
+    }
+
+    .auth-btn:hover {
+      background: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="setup-card">
+    <div class="icon">🔐</div>
+    <h1>初回セットアップ</h1>
+    <p class="sub">Safie APIへの認証が必要です。<br>管理者がボタンを押して認証してください。</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div><code>.env</code> ファイルに <code>SAFIE_CLIENT_ID</code> 等を設定済みか確認</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div>下のボタンを押してSafieの認可画面へ移動</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div>Safieで「許可」すると自動的にビューア画面に遷移します</div>
+      </div>
+    </div>
+
+    <a href="/auth" class="auth-btn">Safie認証を開始</a>
+  </div>
+</body>
+</html>

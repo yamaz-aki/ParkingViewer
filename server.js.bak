@@ -1,0 +1,251 @@
+require('dotenv').config();
+const express = require('express');
+const crypto = require('crypto');
+const https = require('https');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ─── 設定 ───────────────────────────────────────────
+const CONFIG = {
+  clientId:     process.env.SAFIE_CLIENT_ID,
+  clientSecret: process.env.SAFIE_CLIENT_SECRET,
+  redirectUri:  process.env.SAFIE_REDIRECT_URI || `http://localhost:${PORT}/callback`,
+  scope:        process.env.SAFIE_SCOPE || 'safie-api',
+};
+
+const AUTH_URL   = 'https://openapi.safie.link/v2/auth/authorize';
+const TOKEN_URL  = 'https://openapi.safie.link/v2/auth/token';
+
+// カメラ設定
+const CAMERAS = [
+  { id: process.env.DEVICE_ID_1 || '', label: process.env.DEVICE_LABEL_1 || 'カメラ1' },
+  { id: process.env.DEVICE_ID_2 || '', label: process.env.DEVICE_LABEL_2 || 'カメラ2' },
+];
+
+// ─── トークン保存（ファイルベース・簡易永続化）──────────
+const TOKEN_FILE = path.join(__dirname, '.tokens.json');
+
+function loadTokens() {
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('トークン読込エラー:', e.message);
+  }
+  return {};
+}
+
+function saveTokens(data) {
+  const current = loadTokens();
+  const merged = { ...current, ...data };
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(merged, null, 2));
+}
+
+// ─── HTTPリクエストヘルパー ─────────────────────────
+function postForm(url, params) {
+  return new Promise((resolve, reject) => {
+    const body = new URLSearchParams(params).toString();
+    const parsed = new URL(url);
+
+    const req = https.request({
+      hostname: parsed.hostname,
+      path: parsed.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, body: JSON.parse(data) });
+        } catch {
+          resolve({ status: res.statusCode, body: data });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// ─── 静的ファイル ───────────────────────────────────
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ─── ルート：ステータス確認 ──────────────────────────
+app.get('/', (req, res) => {
+  const tokens = loadTokens();
+  if (!tokens.refresh_token) {
+    // 未認証 → セットアップ画面
+    res.sendFile(path.join(__dirname, 'public', 'setup.html'));
+  } else {
+    // 認証済み → ビューア画面
+    res.sendFile(path.join(__dirname, 'public', 'viewer.html'));
+  }
+});
+
+// ─── Step 1: 管理者が認可URLへ遷移 ──────────────────
+app.get('/auth', (req, res) => {
+  const state = crypto.randomUUID();
+  // stateをファイルに一時保存
+  saveTokens({ oauth_state: state });
+
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id:     CONFIG.clientId,
+    redirect_uri:  CONFIG.redirectUri,
+    scope:         CONFIG.scope,
+    state:         state,
+  });
+
+  const url = `${AUTH_URL}?${params.toString()}`;
+  console.log('[AUTH] 認可URLへリダイレクト');
+  res.redirect(url);
+});
+
+// ─── Step 2: Safieからのコールバック ─────────────────
+app.get('/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    return res.status(400).send(`認証エラー: ${error}`);
+  }
+
+  if (!code) {
+    return res.status(400).send('認証エラー: codeが返されませんでした');
+  }
+
+  // state検証
+  const tokens = loadTokens();
+  if (tokens.oauth_state && tokens.oauth_state !== state) {
+    return res.status(400).send('認証エラー: stateが一致しません');
+  }
+
+  // ★ 認可コード → トークン交換（grant_type: authorization_code）
+  try {
+    const result = await postForm(TOKEN_URL, {
+      grant_type:    'authorization_code',
+      code:          code,
+      client_id:     CONFIG.clientId,
+      client_secret: CONFIG.clientSecret,
+      redirect_uri:  CONFIG.redirectUri,
+    });
+
+    console.log('[CALLBACK] トークン交換レスポンス:', result.status);
+
+    if (result.status < 200 || result.status >= 300) {
+      return res.status(500).send(
+        `<h2>トークン交換失敗</h2>
+         <p>ステータス: ${result.status}</p>
+         <pre>${JSON.stringify(result.body, null, 2)}</pre>
+         <p><a href="/auth">もう一度認証する</a></p>`
+      );
+    }
+
+    const tokenData = result.body;
+
+    if (!tokenData.refresh_token) {
+      return res.status(500).send(
+        `<h2>refresh_tokenが取得できませんでした</h2>
+         <p>Safie側のアプリ設定（スコープ/権限）を確認してください。</p>
+         <pre>${JSON.stringify(tokenData, null, 2)}</pre>`
+      );
+    }
+
+    // refresh_token を保存
+    saveTokens({
+      refresh_token: tokenData.refresh_token,
+      access_token:  tokenData.access_token || '',
+      oauth_state:   null,
+    });
+
+    console.log('[CALLBACK] 認証成功！refresh_token保存完了');
+    res.redirect('/');
+
+  } catch (err) {
+    console.error('[CALLBACK] エラー:', err);
+    res.status(500).send(`トークン交換中にエラー: ${err.message}`);
+  }
+});
+
+// ─── Step 3: access_token取得API（フロントエンドから呼ぶ）──
+app.get('/api/token', async (req, res) => {
+  const tokens = loadTokens();
+
+  if (!tokens.refresh_token) {
+    return res.status(401).json({
+      error: '未認証です。管理者が /auth から認証してください。',
+    });
+  }
+
+  try {
+    const result = await postForm(TOKEN_URL, {
+      grant_type:    'refresh_token',
+      refresh_token: tokens.refresh_token,
+      client_id:     CONFIG.clientId,
+      client_secret: CONFIG.clientSecret,
+      redirect_uri:  CONFIG.redirectUri,
+    });
+
+    if (result.status < 200 || result.status >= 300) {
+      console.error('[TOKEN] refresh失敗:', result.status, JSON.stringify(result.body, null, 2));
+
+      // refresh_tokenが無効になった場合
+      if (result.status === 401 || result.status === 400) {
+        return res.status(401).json({
+          error: 'refresh_tokenが無効です。管理者が /auth から再認証してください。',
+        });
+      }
+      return res.status(500).json({ error: `トークン取得失敗 (${result.status})` });
+    }
+
+    const tokenData = result.body;
+
+    // 新しいrefresh_tokenが返ってきたら更新
+    if (tokenData.refresh_token) {
+      saveTokens({ refresh_token: tokenData.refresh_token });
+    }
+
+    res.json({ access_token: tokenData.access_token });
+
+  } catch (err) {
+    console.error('[TOKEN] エラー:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── カメラ設定API ───────────────────────────────────
+app.get('/api/cameras', (req, res) => {
+  res.json(CAMERAS.filter(c => c.id));
+});
+
+// ─── 認証リセット（管理者用）────────────────────────
+app.get('/reset', (req, res) => {
+  if (fs.existsSync(TOKEN_FILE)) {
+    fs.unlinkSync(TOKEN_FILE);
+  }
+  console.log('[RESET] トークン削除完了');
+  res.redirect('/');
+});
+
+// ─── サーバー起動 ───────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`
+╔══════════════════════════════════════════════╗
+║  駐車場カメラ ライブビューア                    ║
+║  http://localhost:${PORT}                       ║
+╚══════════════════════════════════════════════╝
+
+  初回セットアップ:
+  1. .env ファイルに認証情報を設定
+  2. http://localhost:${PORT}/auth にアクセスして認証
+  3. 認証完了後、自動的にビューア画面に遷移します
+  `);
+});
