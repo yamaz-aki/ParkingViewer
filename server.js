@@ -13,6 +13,8 @@ const ALLOWED_DOMAIN = 'turing-motors.com';
 const CAMERA_CONFIG = [
   { serial: process.env.DEVICE_ID_1 || '', label: process.env.DEVICE_LABEL_1 || 'カメラ1' },
   { serial: process.env.DEVICE_ID_2 || '', label: process.env.DEVICE_LABEL_2 || 'カメラ2' },
+  { serial: process.env.DEVICE_ID_3 || '', label: process.env.DEVICE_LABEL_3 || 'カメラ3' },
+  { serial: process.env.DEVICE_ID_4 || '', label: process.env.DEVICE_LABEL_4 || 'カメラ4' },
 ].filter(c => c.serial);
 
 let CAMERAS = CAMERA_CONFIG.map(c => ({ ...c, id: c.serial }));
