@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🅿️ 駐車場ライブ</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --surface:   #161b25;
+      --surface2:  #1e2535;
+      --border:    #2a3347;
+      --accent:    #3b82f6;
+      --accent-glow: rgba(59,130,246,0.25);
+      --text:      #e2e8f0;
+      --text-muted:#64748b;
+      --success:   #22c55e;
+      --warning:   #f59e0b;
+      --error:     #ef4444;
+      --radius:    12px;
+      --interval: 60;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-snap {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(59,130,246,0.15);
+      color: var(--accent);
+      border: 1px solid rgba(59,130,246,0.4);
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .interval-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .interval-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.78rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      outline: none;
+    }
+    .interval-select:focus { border-color: var(--accent); }
+
+    .btn-refresh-all {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: opacity 0.15s;
+    }
+    .btn-refresh-all:hover { opacity: 0.85; }
+    .btn-refresh-all:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .countdown {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .progress-ring {
+      width: 20px;
+      height: 20px;
+      transform: rotate(-90deg);
+    }
+
+    .progress-ring circle {
+      fill: none;
+      stroke: var(--border);
+      stroke-width: 2.5;
+    }
+
+    .progress-ring .track {
+      stroke: var(--accent);
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1s linear;
+    }
+
+    main {
+      flex: 1;
+      padding: 20px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    #error-banner {
+      display: none;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: var(--radius);
+      padding: 12px 18px;
+      margin-bottom: 16px;
+      font-size: 0.85rem;
+      color: var(--error);
+    }
+    #error-banner.visible { display: block; }
+
+    .camera-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .camera-grid { grid-template-columns: 1fr; }
+      main { padding: 12px; }
+    }
+
+    .camera-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .camera-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .camera-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cam-icon {
+      width: 20px;
+      height: 20px;
+      background: var(--accent);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 5px;
+    }
+
+    .btn-icon {
+      background: var(--border);
+      border: none;
+      border-radius: 6px;
+      color: var(--text-muted);
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-icon:hover { background: var(--accent); color: #fff; }
+    .btn-icon.spinning { animation: spin 0.7s linear infinite; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .img-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .cam-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      transition: opacity 0.3s;
+    }
+
+    .cam-img.loading { opacity: 0.4; }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: opacity 0.3s;
+    }
+
+    .loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-text { font-size: 0.75rem; color: var(--text-muted); }
+
+    .error-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .error-overlay.visible { display: flex; }
+    .error-icon { font-size: 2rem; }
+    .error-msg  { font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; }
+
+    .card-footer {
+      padding: 7px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      gap: 8px;
+    }
+
+    .cam-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .cam-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .cam-dot.ok    { background: var(--success); box-shadow: 0 0 5px rgba(34,197,94,0.5); }
+    .cam-dot.loading { background: var(--warning); animation: pulse 0.9s infinite; }
+    .cam-dot.error { background: var(--error); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .camera-card:fullscreen .img-wrapper {
+      aspect-ratio: auto;
+      height: calc(100vh - 90px);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">
+    🅿️ 駐車場ライブ
+    <span class="badge-snap">SNAPSHOT</span>
+  </div>
+
+  <div class="interval-control">
+    更新間隔:
+    <select class="interval-select" id="interval-select">
+      <option value="30">30秒</option>
+      <option value="60" selected>1分</option>
+      <option value="300">5分</option>
+      <option value="600">10分</option>
+      <option value="0">手動のみ</option>
+    </select>
+  </div>
+
+  <button class="btn-refresh-all" id="btn-refresh-all">
+    ↻ 今すぐ全更新
+  </button>
+
+  <div class="countdown" id="countdown" style="display:none">
+    <svg class="progress-ring" viewBox="0 0 20 20">
+      <circle cx="10" cy="10" r="7.5"/>
+      <circle class="track" cx="10" cy="10" r="7.5" id="ring-track"
+              stroke-dasharray="47.12" stroke-dashoffset="0"/>
+    </svg>
+    <span id="countdown-text">—</span>
+  </div>
+</header>
+
+<main>
+  <div id="error-banner"></div>
+  <div class="camera-grid" id="camera-grid"></div>
+</main>
+
+<script>
+(async () => {
+
+  const grid        = document.getElementById('camera-grid');
+  const errBanner   = document.getElementById('error-banner');
+  const selInterval = document.getElementById('interval-select');
+  const btnAll      = document.getElementById('btn-refresh-all');
+  const countdown   = document.getElementById('countdown');
+  const countdownTxt = document.getElementById('countdown-text');
+  const ringTrack   = document.getElementById('ring-track');
+  const CIRCUMFERENCE = 47.12;
+
+  let config;
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || `HTTP ${res.status}`);
+    config = await res.json();
+  } catch (e) {
+    showBanner(`設定取得に失敗しました: ${e.message}`);
+    return;
+  }
+
+  const { cameras } = config;
+
+  grid.innerHTML = '';
+  cameras.forEach(cam => grid.appendChild(buildCard(cam)));
+
+  await refreshAll();
+
+  let timerId  = null;
+  let remaining = 0;
+  let totalSec  = 0;
+
+  function startTimer(sec) {
+    clearInterval(timerId);
+    totalSec  = sec;
+    remaining = sec;
+
+    if (sec <= 0) {
+      countdown.style.display = 'none';
+      return;
+    }
+
+    countdown.style.display = 'flex';
+    updateCountdownUI();
+
+    timerId = setInterval(async () => {
+      remaining--;
+      updateCountdownUI();
+      if (remaining <= 0) {
+        remaining = totalSec;
+        await refreshAll();
+      }
+    }, 1000);
+  }
+
+  function updateCountdownUI() {
+    countdownTxt.textContent = remaining >= 60
+      ? `${Math.ceil(remaining / 60)}分`
+      : `${remaining}秒`;
+    const offset = CIRCUMFERENCE * (1 - remaining / totalSec);
+    ringTrack.style.strokeDashoffset = offset;
+  }
+
+  selInterval.addEventListener('change', () => {
+    startTimer(parseInt(selInterval.value, 10));
+  });
+
+  btnAll.addEventListener('click', async () => {
+    await refreshAll();
+    if (totalSec > 0) {
+      remaining = totalSec;
+      updateCountdownUI();
+    }
+  });
+
+  startTimer(parseInt(selInterval.value, 10));
+
+  async function refreshAll() {
+    btnAll.disabled = true;
+    await Promise.all(cameras.map(cam => refreshCamera(cam)));
+    btnAll.disabled = false;
+  }
+
+  async function refreshCamera(cam) {
+    const img     = document.getElementById(`img-${cam.id}`);
+    const loading = document.getElementById(`loading-${cam.id}`);
+    const errEl   = document.getElementById(`error-${cam.id}`);
+    const dot     = document.getElementById(`dot-${cam.id}`);
+    const updEl   = document.getElementById(`updated-${cam.id}`);
+    const btnRef  = document.getElementById(`btn-ref-${cam.id}`);
+
+    if (!img) return;
+
+    errEl.classList.remove('visible');
+    loading.classList.remove('hidden');
+    img.classList.add('loading');
+    if (dot)    dot.className = 'cam-dot loading';
+    if (btnRef) btnRef.classList.add('spinning');
+
+    try {
+      const url = `/api/snapshot/${cam.id}?t=${Date.now()}`;
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail?.detail?.message || body.error || `HTTP ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+
+      if (img.dataset.objUrl) URL.revokeObjectURL(img.dataset.objUrl);
+      img.dataset.objUrl = objUrl;
+      img.src = objUrl;
+
+      img.classList.remove('loading');
+      loading.classList.add('hidden');
+      if (dot)   dot.className = 'cam-dot ok';
+      if (updEl) updEl.textContent = `更新: ${now()}`;
+
+    } catch (e) {
+      loading.classList.add('hidden');
+      img.classList.remove('loading');
+      document.getElementById(`error-msg-${cam.id}`).textContent = e.message;
+      errEl.classList.add('visible');
+      if (dot) dot.className = 'cam-dot error';
+      if (updEl) updEl.textContent = `エラー: ${now()}`;
+    }
+
+    if (btnRef) btnRef.classList.remove('spinning');
+  }
+
+  function buildCard(cam) {
+    const card = document.createElement('div');
+    card.className = 'camera-card';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="camera-label">
+          <div class="cam-icon">📷</div>
+          ${esc(cam.label)}
+        </div>
+        <div class="card-actions">
+          <button class="btn-icon" id="btn-ref-${esc(cam.id)}" title="今すぐ更新">↻</button>
+          <button class="btn-icon btn-fs" title="フルスクリーン">⛶</button>
+        </div>
+      </div>
+
+      <div class="img-wrapper">
+        <img class="cam-img" id="img-${esc(cam.id)}" src="" alt="${esc(cam.label)}" />
+        <div class="loading-overlay" id="loading-${esc(cam.id)}">
+          <div class="spinner"></div>
+          <div class="loading-text">画像を取得中...</div>
+        </div>
+        <div class="error-overlay" id="error-${esc(cam.id)}">
+          <div class="error-icon">📵</div>
+          <div class="error-msg" id="error-msg-${esc(cam.id)}">画像の取得に失敗しました</div>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div class="cam-status">
+          <div class="cam-dot loading" id="dot-${esc(cam.id)}"></div>
+          <span id="updated-${esc(cam.id)}">取得中...</span>
+        </div>
+        <span style="font-family:monospace;font-size:0.66rem;opacity:0.45">${esc(cam.id)}</span>
+      </div>
+    `;
+
+    card.querySelector(`#btn-ref-${cam.id}`).addEventListener('click', () => {
+      refreshCamera(cam);
+    });
+
+    card.querySelector('.btn-fs').addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        card.requestFullscreen().catch(e => console.warn(e));
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    return card;
+  }
+
+  function showBanner(msg) {
+    errBanner.textContent = `⚠️ ${msg}`;
+    errBanner.classList.add('visible');
+  }
+
+  function now() {
+    return new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+})();
+</script>
+
+</body>
+</html>
